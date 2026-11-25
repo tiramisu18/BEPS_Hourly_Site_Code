@@ -4,8 +4,7 @@
 #include <string.h>
 #include <math.h>
 #include <sys/types.h>
-
-#define YEAR 2020
+#include <errno.h>
 
 #define PARAMETER_N 50
 #define VAR_N 41
@@ -13,6 +12,11 @@
 #define INPUT_DIR "/Users/jr/Documents/01-Research/06-BEPS-Model/BEPS_Hourly_Site_Code/BEPS_Amazon/input"
 #define OUTPUT_DIR "/Users/jr/Documents/01-Research/06-BEPS-Model/BEPS_Hourly_Site_Code/BEPS_Amazon/output/GPP"
 
+
+//  运行命令行
+// for year in {2000..2023}; do
+//     ./BEPS_Hourly_regional "$year"
+// done
 
 /* =========================================================
  * Pixel information
@@ -41,6 +45,35 @@ static void fatal_error(const char *msg)
 {
     fprintf(stderr, "\nERROR: %s\n", msg);
     exit(EXIT_FAILURE);
+}
+
+
+/* =========================================================
+ * Read simulation year from the command line
+ * ========================================================= */
+
+static int parse_year_argument(int argc, char *argv[])
+{
+    char *end = NULL;
+    long parsed_year;
+
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s <year>\n", argv[0]);
+        exit(EXIT_FAILURE);
+    }
+
+    errno = 0;
+    parsed_year = strtol(argv[1], &end, 10);
+
+    if (errno != 0 || end == argv[1] || *end != '\0' ||
+        parsed_year < 1 || parsed_year > 9999) {
+        fprintf(stderr,
+                "ERROR: Invalid year '%s'. Please provide a year from 1 to 9999.\n",
+                argv[1]);
+        exit(EXIT_FAILURE);
+    }
+
+    return (int)parsed_year;
 }
 
 
@@ -339,21 +372,22 @@ static void read_lai_day(FILE *fp,
  * Main
  * ========================================================= */
 
-int main(void)
+int main(int argc, char *argv[])
 {
+    int year = parse_year_argument(argc, argv);
 
     char basic_file[512], lai_file[512];
     char sw_file[512], temp_file[512], rh_file[512], p_file[512], wind_file[512];
     char gpp_file[512];
 
-    snprintf(basic_file, sizeof(basic_file), "%s/basic/BEPS_Basic_%d.txt", INPUT_DIR, YEAR);
-    snprintf(lai_file, sizeof(lai_file), "%s/lai/LAI_%d.bin", INPUT_DIR, YEAR);
-    snprintf(sw_file, sizeof(sw_file), "%s/meteo/SW/SW_%d.bin", INPUT_DIR, YEAR);
-    snprintf(temp_file, sizeof(temp_file), "%s/meteo/Air_Temperature/Air_Temperature_%d.bin", INPUT_DIR, YEAR);
-    snprintf(rh_file, sizeof(rh_file), "%s/meteo/RH/RH_%d.bin", INPUT_DIR, YEAR);
-    snprintf(p_file, sizeof(p_file), "%s/meteo/P/P_%d.bin", INPUT_DIR, YEAR);
-    snprintf(wind_file, sizeof(wind_file), "%s/meteo/WindSpeed/WindSpeed_%d.bin", INPUT_DIR, YEAR);
-    snprintf(gpp_file, sizeof(gpp_file), "%s/GPP_%d.bin", OUTPUT_DIR, YEAR);
+    snprintf(basic_file, sizeof(basic_file), "%s/basic/BEPS_Basic_%d.txt", INPUT_DIR, year);
+    snprintf(lai_file, sizeof(lai_file), "%s/lai/LAI_%d.bin", INPUT_DIR, year);
+    snprintf(sw_file, sizeof(sw_file), "%s/meteo/SW/SW_%d.bin", INPUT_DIR, year);
+    snprintf(temp_file, sizeof(temp_file), "%s/meteo/Air_Temperature/Air_Temperature_%d.bin", INPUT_DIR, year);
+    snprintf(rh_file, sizeof(rh_file), "%s/meteo/RH/RH_%d.bin", INPUT_DIR, year);
+    snprintf(p_file, sizeof(p_file), "%s/meteo/P/P_%d.bin", INPUT_DIR, year);
+    snprintf(wind_file, sizeof(wind_file), "%s/meteo/WindSpeed/WindSpeed_%d.bin", INPUT_DIR, year);
+    snprintf(gpp_file, sizeof(gpp_file), "%s/GPP_%d.bin", OUTPUT_DIR, year);
 
 
     FILE *fp_lai = NULL;
@@ -394,7 +428,7 @@ int main(void)
     printf("============================================================\n");
     printf("                BEPS AMAZON REGIONAL MODEL\n");
     printf("============================================================\n");
-    printf("Year: %d\n", YEAR);
+    printf("Year: %d\n", year);
     printf("============================================================\n\n");
 
 
@@ -416,13 +450,13 @@ int main(void)
     days_in_year = 365;
     // days_in_year = 6;
 
-    if ((YEAR % 4 == 0 && YEAR % 100 != 0) || (YEAR % 400 == 0)) {
+    if ((year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)) {
         // days_in_year = 6;
         days_in_year = 366;
     }
 
     printf("[2] Time configuration\n");
-    printf("    Year       = %d\n", YEAR);
+    printf("    Year       = %d\n", year);
     printf("    Days       = %d\n", days_in_year);
     printf("    Hours      = %d\n", days_in_year * 24);
     printf("    Pixels     = %lld\n\n", n_pixels);
@@ -1041,7 +1075,7 @@ int main(void)
     printf("============================================================\n");
     printf("                  SIMULATION FINISHED\n");
     printf("============================================================\n");
-    printf("Year       : %d\n", YEAR);
+    printf("Year       : %d\n", year);
     printf("Days       : %d\n", days_in_year);
     printf("Pixels     : %lld\n", n_pixels);
     printf("Output     : %s\n", gpp_file);
