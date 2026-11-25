@@ -35,7 +35,7 @@
 #define kloop		10      // 10 times per hour, 360 sec. per time
 #define layer		5
 #define depth_f		6
-#define CO2_air     380     // atmospheric CO2 concentration
+extern double CO2_air;      // atmospheric CO2 concentration (ppm)
 #define rho_a	    1.292   // density of air at 0C
 
 /// @brief Declare structures

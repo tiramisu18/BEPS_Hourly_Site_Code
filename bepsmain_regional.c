@@ -1,17 +1,31 @@
 #include "beps.h"
 #include <stdio.h>
+#ifdef _WIN32
+#define ftello _ftelli64
+#define fseeko _fseeki64
+#endif
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
 #include <sys/types.h>
 #include <errno.h>
 
+#ifdef _WIN32
+#define ftello _ftelli64
+#define fseeko _fseeki64
+#endif
+
 #define PARAMETER_N 50
 #define VAR_N 41
 
 #define INPUT_DIR "/Users/jr/Documents/01-Research/06-BEPS-Model/BEPS_Hourly_Site_Code/BEPS_Amazon/input"
+#define CO2_FILE "/Users/jr/Documents/01-Research/06-BEPS-Model/BEPS_Hourly_Site_Code/BEPS_Amazon/input/CO2/235_NOAA_CO2.csv"
 #define OUTPUT_DIR "/Users/jr/Documents/01-Research/06-BEPS-Model/BEPS_Hourly_Site_Code/BEPS_Amazon/output/GPP"
 
+
+// #define INPUT_DIR "E:/01-Research/06-BEPS_Model/BEPS_Hourly_Site_Code/BEPS_Amazon/input"
+// #define CO2_FILE "E:/01-Research/06-BEPS_Model/BEPS_Hourly_Site_Code/BEPS_Amazon/input/CO2/235_NOAA_CO2.csv"
+// #define OUTPUT_DIR "E:/01-Research/06-BEPS_Model/BEPS_Hourly_Site_Code/BEPS_Amazon/output/GPP"
 
 //  运行命令行
 // for year in {2000..2023}; do
@@ -74,6 +88,102 @@ static int parse_year_argument(int argc, char *argv[])
     }
 
     return (int)parsed_year;
+}
+
+
+/* =========================================================
+ * Read monthly atmospheric CO2 for the requested year
+ * CSV columns used: YYYYMM, decimal year, global CO2 (ppm)
+ * ========================================================= */
+
+static void read_monthly_co2(int year, double monthly_co2[12])
+{
+    FILE *fp;
+    char line[512];
+    int line_number = 0;
+    int date_yyyymm;
+    int row_year;
+    int month;
+    int found[12] = {0};
+    double decimal_year;
+    double co2_value;
+
+    fp = fopen(CO2_FILE, "r");
+    if (fp == NULL) {
+        perror(CO2_FILE);
+        exit(EXIT_FAILURE);
+    }
+
+    while (fgets(line, sizeof(line), fp) != NULL) {
+        line_number++;
+        if (sscanf(line, "%d,%lf,%lf", &date_yyyymm,
+                   &decimal_year, &co2_value) != 3) {
+            fprintf(stderr, "ERROR: Invalid CO2 CSV row at line %d.\n",
+                    line_number);
+            fclose(fp);
+            exit(EXIT_FAILURE);
+        }
+
+        row_year = date_yyyymm / 100;
+        month = date_yyyymm % 100;
+        if (row_year != year) {
+            continue;
+        }
+        if (month < 1 || month > 12 || !isfinite(co2_value) || co2_value <= 0.0) {
+            fprintf(stderr,
+                    "ERROR: Invalid CO2 value/date for %06d: %.6f ppm.\n",
+                    date_yyyymm, co2_value);
+            fclose(fp);
+            exit(EXIT_FAILURE);
+        }
+        if (found[month - 1]) {
+            fprintf(stderr, "ERROR: Duplicate CO2 CSV entry for %06d.\n",
+                    date_yyyymm);
+            fclose(fp);
+            exit(EXIT_FAILURE);
+        }
+
+        monthly_co2[month - 1] = co2_value;
+        found[month - 1] = 1;
+    }
+
+    if (ferror(fp)) {
+        fprintf(stderr, "ERROR: Failed while reading CO2 CSV: %s\n", CO2_FILE);
+        fclose(fp);
+        exit(EXIT_FAILURE);
+    }
+    fclose(fp);
+
+    for (month = 1; month <= 12; month++) {
+        if (!found[month - 1]) {
+            fprintf(stderr,
+                    "ERROR: CO2 CSV has no value for %04d-%02d.\n",
+                    year, month);
+            exit(EXIT_FAILURE);
+        }
+    }
+}
+
+
+static int month_from_day_of_year(int year, int day_of_year)
+{
+    int days_in_month[12] = {31, 28, 31, 30, 31, 30,
+                             31, 31, 30, 31, 30, 31};
+    int month;
+
+    if ((year % 4 == 0 && year % 100 != 0) || year % 400 == 0) {
+        days_in_month[1] = 29;
+    }
+
+    for (month = 0; month < 12; month++) {
+        if (day_of_year <= days_in_month[month]) {
+            return month + 1;
+        }
+        day_of_year -= days_in_month[month];
+    }
+
+    fatal_error("Day of year is outside the calendar year.");
+    return 0;
 }
 
 
@@ -375,10 +485,13 @@ static void read_lai_day(FILE *fp,
 int main(int argc, char *argv[])
 {
     int year = parse_year_argument(argc, argv);
+    double monthly_co2[12];
 
     char basic_file[512], lai_file[512];
     char sw_file[512], temp_file[512], rh_file[512], p_file[512], wind_file[512];
     char gpp_file[512];
+
+    read_monthly_co2(year, monthly_co2);
 
     snprintf(basic_file, sizeof(basic_file), "%s/basic/BEPS_Basic_%d.txt", INPUT_DIR, year);
     snprintf(lai_file, sizeof(lai_file), "%s/lai/LAI_%d.bin", INPUT_DIR, year);
@@ -429,6 +542,10 @@ int main(int argc, char *argv[])
     printf("                BEPS AMAZON REGIONAL MODEL\n");
     printf("============================================================\n");
     printf("Year: %d\n", year);
+    printf("Monthly CO2 loaded from: %s\n", CO2_FILE);
+    for (int month = 0; month < 12; month++) {
+        printf("    CO2 %02d: %.2f ppm\n", month + 1, monthly_co2[month]);
+    }
     printf("============================================================\n\n");
 
 
@@ -754,6 +871,8 @@ int main(int argc, char *argv[])
     printf("============================================================\n\n");
 
     for (day = 1; day <= days_in_year; day++) {
+
+        CO2_air = monthly_co2[month_from_day_of_year(year, day) - 1];
 
         printf("Day %3d / %3d", day, days_in_year);
         fflush(stdout);
